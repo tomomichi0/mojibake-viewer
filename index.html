@@ -253,9 +253,34 @@
   function rewriteRelativeUrls(html, baseUrl){
     const baseTag = '<base href="' + baseUrl + '">';
     if(/<head[^>]*>/i.test(html)){
-      return html.replace(/<head[^>]*>/i, (m) => m + baseTag);
+      html = html.replace(/<head[^>]*>/i, (m) => m + baseTag);
+    }else{
+      html = baseTag + html;
     }
-    return baseTag + html;
+    return injectFormHandler(html, baseUrl);
+  }
+
+  function injectFormHandler(html, baseUrl){
+    const script = `
+<script>
+(function(){
+  document.addEventListener('submit', function(e){
+    e.preventDefault();
+    var form = e.target;
+    var action = form.getAttribute('action') || '';
+    var absoluteAction = new URL(action || location.href, '${baseUrl}').href;
+    var method = (form.getAttribute('method') || 'GET').toUpperCase();
+    var formData = new FormData(form);
+    var payload = { type: 'mojibake-form-submit', action: absoluteAction, method: method, fields: [] };
+    for (var pair of formData.entries()) { payload.fields.push([pair[0], pair[1]]); }
+    parent.postMessage(payload, '*');
+  }, true);
+})();
+<\/script>`;
+    if(/<\/body>/i.test(html)){
+      return html.replace(/<\/body>/i, script + '</body>');
+    }
+    return html + script;
   }
 
   async function go(){
@@ -308,6 +333,58 @@
   goBtn.addEventListener('click', go);
   urlInput.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') go();
+  });
+
+  window.addEventListener('message', async (e)=>{
+    const data = e.data;
+    if(!data || data.type !== 'mojibake-form-submit') return;
+
+    goBtn.disabled = true;
+    status.classList.remove('error');
+    status.textContent = 'フォーム送信中…';
+
+    try{
+      let targetUrl = data.action;
+      let fetchOptions = { cache: 'no-store' };
+
+      if(data.method === 'GET'){
+        const u = new URL(targetUrl);
+        data.fields.forEach(([k,v]) => u.searchParams.set(k, v));
+        targetUrl = u.href;
+      }else{
+        const params = new URLSearchParams();
+        data.fields.forEach(([k,v]) => params.append(k, v));
+        fetchOptions.method = 'POST';
+        fetchOptions.headers = {'Content-Type':'application/x-www-form-urlencoded'};
+        fetchOptions.body = params.toString();
+      }
+
+      const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl);
+      const res = await fetch(proxyUrl, fetchOptions);
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+
+      let html, usedEnc;
+      if(currentEnc === 'auto'){
+        const r = autoDecode(bytes);
+        html = r.text; usedEnc = r.enc;
+      }else{
+        html = decodeBytes(bytes, currentEnc);
+        usedEnc = currentEnc;
+      }
+
+      html = rewriteRelativeUrls(html, targetUrl);
+      frame.srcdoc = html;
+      frame.style.display = 'block';
+      emptyState.style.display = 'none';
+      status.textContent = '結果を表示したよ（' + usedEnc + ' で解読）';
+    }catch(err){
+      status.textContent = 'フォーム送信できなかった: ' + err.message;
+      status.classList.add('error');
+    }finally{
+      goBtn.disabled = false;
+    }
   });
 })();
 </script>
