@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>文字化けページビューア</title>
+<style>
+  :root{
+    --ink:#2b2a26;
+    --paper:#f6f3ea;
+    --paper-dim:#ece7d8;
+    --line:#c9c2ab;
+    --accent:#8a6d3b;
+    --accent-soft:#e4d7b8;
+    --mono: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    --serif: 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:-apple-system, 'Hiragino Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;
+    flex-direction:column;
+  }
+  header{
+    padding:16px 16px 14px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+    background:
+      repeating-linear-gradient(135deg, transparent 0 8px, rgba(138,109,59,0.04) 8px 9px);
+  }
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:0.12em;
+    color:var(--accent);
+    text-transform:uppercase;
+    margin-bottom:4px;
+  }
+  h1{
+    font-family:var(--serif);
+    font-size:19px;
+    font-weight:600;
+    margin:0 0 10px;
+    letter-spacing:0.02em;
+  }
+  .urlrow{
+    display:flex;
+    gap:8px;
+  }
+  #urlInput{
+    flex:1;
+    min-width:0;
+    padding:10px 12px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    font-size:14px;
+    background:#fffdf7;
+    color:var(--ink);
+    font-family:var(--mono);
+  }
+  #urlInput:focus{outline:none;border-color:var(--accent);}
+  button{
+    font-family:inherit;
+    font-size:14px;
+    padding:10px 16px;
+    border-radius:4px;
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  button:active{opacity:0.7;}
+  button:disabled{opacity:0.4;}
+  .controls{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .enc-chip{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:5px 10px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:#6b6555;
+  }
+  .enc-chip.active{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  .status{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--accent);
+    margin-top:8px;
+    min-height:14px;
+  }
+  .status.error{color:#b3452c;}
+  main{
+    flex:1;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+  }
+  #frame{
+    flex:1;
+    width:100%;
+    border:none;
+    background:#fff;
+  }
+  .empty-state{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:8px;
+    color:#a39d87;
+    padding:40px 20px;
+    text-align:center;
+  }
+  .empty-state .big{
+    font-family:var(--serif);
+    font-size:15px;
+    color:#8a8266;
+  }
+  .empty-state .small{
+    font-family:var(--mono);
+    font-size:11px;
+    line-height:1.7;
+  }
+  .proxy-note{
+    font-size:10px;
+    font-family:var(--mono);
+    color:#a39d87;
+    padding:6px 16px;
+    border-top:1px solid var(--line);
+    background:var(--paper-dim);
+    flex-shrink:0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Mojibake Page Viewer</div>
+  <h1>文字化けページビューア</h1>
+  <div class="urlrow">
+    <input type="url" id="urlInput" placeholder="https://example.com/page.php" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="goBtn">表示</button>
+  </div>
+  <div class="controls">
+    <span style="font-family:var(--mono);font-size:11px;color:#8a8266;">文字コード：</span>
+    <div id="encRow" style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button type="button" class="enc-chip active" data-enc="auto">自動</button>
+      <button type="button" class="enc-chip" data-enc="shift-jis">Shift_JIS</button>
+      <button type="button" class="enc-chip" data-enc="euc-jp">EUC-JP</button>
+      <button type="button" class="enc-chip" data-enc="utf-8">UTF-8</button>
+    </div>
+  </div>
+  <div class="status" id="status"></div>
+</header>
+
+<main>
+  <div class="empty-state" id="emptyState">
+    <div class="big">URLを入れて「表示」を押してね</div>
+    <div class="small">裏側で取得 → 文字コード判定 → 組版して表示するよ<br>取得できない場合は下の別法を試してね</div>
+  </div>
+  <iframe id="frame" style="display:none;"></iframe>
+</main>
+
+<div class="proxy-note" id="proxyNote">通信経由でページを取得します（外部プロキシ利用）</div>
+
+<script>
+(function(){
+  const urlInput = document.getElementById('urlInput');
+  const goBtn = document.getElementById('goBtn');
+  const status = document.getElementById('status');
+  const frame = document.getElementById('frame');
+  const emptyState = document.getElementById('emptyState');
+  const encRow = document.getElementById('encRow');
+  let currentEnc = 'auto';
+
+  encRow.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.enc-chip');
+    if(!btn) return;
+    [...encRow.children].forEach(c=>c.classList.remove('active'));
+    btn.classList.add('active');
+    currentEnc = btn.dataset.enc;
+  });
+
+  const PROXIES = [
+    (url) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+    (url) => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
+    (url) => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
+  ];
+
+  function scoreJapanese(text){
+    const jp = (text.match(/[\u3040-\u30ff\u4e00-\u9fff]/g) || []).length;
+    const replacement = (text.match(/\uFFFD/g) || []).length;
+    return jp - replacement * 5;
+  }
+
+  function decodeBytes(bytes, encoding){
+    const decoder = new TextDecoder(encoding, {fatal:false});
+    return decoder.decode(bytes);
+  }
+
+  function autoDecode(bytes){
+    const candidates = ['shift-jis','euc-jp','utf-8'];
+    let best = null, bestScore = -Infinity, bestEnc = '';
+    for(const enc of candidates){
+      try{
+        const result = decodeBytes(bytes, enc);
+        const s = scoreJapanese(result);
+        if(s > bestScore){ bestScore = s; best = result; bestEnc = enc; }
+      }catch(e){}
+    }
+    return {text: best, enc: bestEnc};
+  }
+
+  async function fetchViaProxies(url){
+    let lastError = null;
+    for(let i=0; i<PROXIES.length; i++){
+      const proxyUrl = PROXIES[i](url);
+      try{
+        status.textContent = '取得中… (経路 ' + (i+1) + '/' + PROXIES.length + ')';
+        const res = await fetch(proxyUrl, {cache:'no-store'});
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        const buf = await res.arrayBuffer();
+        if(buf.byteLength === 0) throw new Error('空の応答');
+        return new Uint8Array(buf);
+      }catch(e){
+        lastError = e;
+        continue;
+      }
+    }
+    throw lastError || new Error('全ての経路で失敗');
+  }
+
+  function rewriteRelativeUrls(html, baseUrl){
+    const baseTag = '<base href="' + baseUrl + '">';
+    if(/<head[^>]*>/i.test(html)){
+      return html.replace(/<head[^>]*>/i, (m) => m + baseTag);
+    }
+    return baseTag + html;
+  }
+
+  async function go(){
+    const rawUrl = urlInput.value.trim();
+    if(!rawUrl){
+      status.textContent = 'URLを入力してね';
+      status.classList.add('error');
+      return;
+    }
+    let url;
+    try{
+      url = new URL(rawUrl);
+    }catch(e){
+      status.textContent = 'URLの形式がおかしいかも';
+      status.classList.add('error');
+      return;
+    }
+
+    goBtn.disabled = true;
+    status.classList.remove('error');
+    status.textContent = '取得中…';
+
+    try{
+      const bytes = await fetchViaProxies(url.href);
+
+      let html, usedEnc;
+      if(currentEnc === 'auto'){
+        const r = autoDecode(bytes);
+        html = r.text;
+        usedEnc = r.enc;
+      }else{
+        html = decodeBytes(bytes, currentEnc);
+        usedEnc = currentEnc;
+      }
+
+      html = rewriteRelativeUrls(html, url.href);
+
+      frame.srcdoc = html;
+      frame.style.display = 'block';
+      emptyState.style.display = 'none';
+      status.textContent = '表示したよ（' + usedEnc + ' で解読）';
+    }catch(e){
+      status.textContent = '取得できなかった: ' + e.message + '　→ 下の別法を試してね';
+      status.classList.add('error');
+    }finally{
+      goBtn.disabled = false;
+    }
+  }
+
+  goBtn.addEventListener('click', go);
+  urlInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') go();
+  });
+})();
+</script>
+
+</body>
+</html>
