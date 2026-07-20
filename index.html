@@ -264,9 +264,7 @@
     const script = `
 <script>
 (function(){
-  document.addEventListener('submit', function(e){
-    e.preventDefault();
-    var form = e.target;
+  function handleSubmit(form){
     var action = form.getAttribute('action') || '';
     var absoluteAction = new URL(action || location.href, '${baseUrl}').href;
     var method = (form.getAttribute('method') || 'GET').toUpperCase();
@@ -274,7 +272,23 @@
     var payload = { type: 'mojibake-form-submit', action: absoluteAction, method: method, fields: [] };
     for (var pair of formData.entries()) { payload.fields.push([pair[0], pair[1]]); }
     parent.postMessage(payload, '*');
+  }
+  document.addEventListener('submit', function(e){
+    e.preventDefault();
+    handleSubmit(e.target);
   }, true);
+  document.addEventListener('click', function(e){
+    var el = e.target;
+    if(el.tagName === 'INPUT' && (el.type === 'submit' || el.type === 'button' || el.type === 'image')){
+      var form = el.closest('form');
+      if(form){
+        e.preventDefault();
+        e.stopPropagation();
+        handleSubmit(form);
+      }
+    }
+  }, true);
+  parent.postMessage({type:'mojibake-debug', msg:'スクリプト注入OK / form数=' + document.forms.length}, '*');
 })();
 <\/script>`;
     if(/<\/body>/i.test(html)){
@@ -337,7 +351,13 @@
 
   window.addEventListener('message', async (e)=>{
     const data = e.data;
-    if(!data || data.type !== 'mojibake-form-submit') return;
+    if(!data) return;
+
+    if(data.type === 'mojibake-debug'){
+      status.textContent = 'デバッグ: ' + data.msg;
+      return;
+    }
+    if(data.type !== 'mojibake-form-submit') return;
 
     goBtn.disabled = true;
     status.classList.remove('error');
