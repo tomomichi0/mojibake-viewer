@@ -365,25 +365,54 @@
 
     try{
       let targetUrl = data.action;
-      let fetchOptions = { cache: 'no-store' };
+      let bytes = null;
+      let lastErr = null;
 
       if(data.method === 'GET'){
         const u = new URL(targetUrl);
         data.fields.forEach(([k,v]) => u.searchParams.set(k, v));
         targetUrl = u.href;
+        bytes = await fetchViaProxies(targetUrl);
       }else{
         const params = new URLSearchParams();
         data.fields.forEach(([k,v]) => params.append(k, v));
-        fetchOptions.method = 'POST';
-        fetchOptions.headers = {'Content-Type':'application/x-www-form-urlencoded'};
-        fetchOptions.body = params.toString();
+
+        const postProxies = [
+          'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl),
+          'https://corsproxy.io/?url=' + encodeURIComponent(targetUrl),
+        ];
+        for(const proxyUrl of postProxies){
+          try{
+            status.textContent = 'フォーム送信中…';
+            const res = await fetch(proxyUrl, {
+              method: 'POST',
+              headers: {'Content-Type':'application/x-www-form-urlencoded'},
+              body: params.toString(),
+              cache: 'no-store'
+            });
+            if(!res.ok) throw new Error('HTTP ' + res.status);
+            const buf = await res.arrayBuffer();
+            if(buf.byteLength === 0) throw new Error('空の応答');
+            bytes = new Uint8Array(buf);
+            break;
+          }catch(e){
+            lastErr = e;
+            continue;
+          }
+        }
+        if(!bytes){
+          try{
+            status.textContent = 'POST失敗、GETで再試行…';
+            const u = new URL(targetUrl);
+            data.fields.forEach(([k,v]) => u.searchParams.set(k, v));
+            bytes = await fetchViaProxies(u.href);
+          }catch(e){
+            lastErr = e;
+          }
+        }
       }
 
-      const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl);
-      const res = await fetch(proxyUrl, fetchOptions);
-      if(!res.ok) throw new Error('HTTP ' + res.status);
-      const buf = await res.arrayBuffer();
-      const bytes = new Uint8Array(buf);
+      if(!bytes) throw lastErr || new Error('送信に失敗したよ');
 
       let html, usedEnc;
       if(currentEnc === 'auto'){
