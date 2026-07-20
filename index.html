@@ -192,6 +192,7 @@
   const emptyState = document.getElementById('emptyState');
   const encRow = document.getElementById('encRow');
   let currentEnc = 'auto';
+  let lastDetectedEnc = 'euc-jp';
 
   encRow.addEventListener('click', (e)=>{
     const btn = e.target.closest('.enc-chip');
@@ -329,6 +330,7 @@
         html = decodeBytes(bytes, currentEnc);
         usedEnc = currentEnc;
       }
+      lastDetectedEnc = usedEnc;
 
       html = rewriteRelativeUrls(html, url.href);
 
@@ -348,6 +350,57 @@
   urlInput.addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') go();
   });
+
+  function encodeToBytes(str, encoding){
+    if(encoding === 'utf-8'){
+      return new TextEncoder().encode(str);
+    }
+    return encodeNonUtf8(str, encoding);
+  }
+
+  const _encodeCache = {};
+  function buildReverseMap(encoding){
+    if(_encodeCache[encoding]) return _encodeCache[encoding];
+    const map = new Map();
+    const decoder = new TextDecoder(encoding);
+    for(let b = 0x00; b <= 0xFF; b++){
+      try{
+        const s = decoder.decode(new Uint8Array([b]));
+        if(s && s.charCodeAt(0) !== 0xFFFD) map.set(s, [b]);
+      }catch(e){}
+    }
+    for(let b1 = 0x81; b1 <= 0xFC; b1++){
+      for(let b2 = 0x40; b2 <= 0xFE; b2++){
+        try{
+          const s = decoder.decode(new Uint8Array([b1,b2]));
+          if(s && s.length===1 && s.charCodeAt(0) !== 0xFFFD) map.set(s, [b1,b2]);
+        }catch(e){}
+      }
+    }
+    _encodeCache[encoding] = map;
+    return map;
+  }
+
+  function encodeNonUtf8(str, encoding){
+    const map = buildReverseMap(encoding);
+    const out = [];
+    for(const ch of str){
+      if(map.has(ch)){
+        out.push(...map.get(ch));
+      }else{
+        out.push(...new TextEncoder().encode(ch));
+      }
+    }
+    return new Uint8Array(out);
+  }
+
+  function bytesToPercentEncoded(bytes){
+    let out = '';
+    for(const b of bytes){
+      out += '%' + b.toString(16).padStart(2,'0').toUpperCase();
+    }
+    return out;
+  }
 
   window.addEventListener('message', async (e)=>{
     const data = e.data;
@@ -374,8 +427,13 @@
         targetUrl = u.href;
         bytes = await fetchViaProxies(targetUrl);
       }else{
-        const params = new URLSearchParams();
-        data.fields.forEach(([k,v]) => params.append(k, v));
+        const sendEnc = (currentEnc === 'auto') ? (lastDetectedEnc || 'utf-8') : currentEnc;
+        const encodedPairs = data.fields.map(([k,v]) => {
+          const kb = encodeToBytes(k, sendEnc);
+          const vb = encodeToBytes(v, sendEnc);
+          return bytesToPercentEncoded(kb) + '=' + bytesToPercentEncoded(vb);
+        });
+        const bodyStr = encodedPairs.join('&');
 
         const postProxies = [
           'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(targetUrl),
@@ -383,11 +441,11 @@
         ];
         for(const proxyUrl of postProxies){
           try{
-            status.textContent = 'フォーム送信中…';
+            status.textContent = 'フォーム送信中…(' + sendEnc + 'で送信)';
             const res = await fetch(proxyUrl, {
               method: 'POST',
               headers: {'Content-Type':'application/x-www-form-urlencoded'},
-              body: params.toString(),
+              body: bodyStr,
               cache: 'no-store'
             });
             if(!res.ok) throw new Error('HTTP ' + res.status);
