@@ -258,7 +258,32 @@
     }else{
       html = baseTag + html;
     }
+    html = rewriteImageUrls(html, baseUrl);
     return injectFormHandler(html, baseUrl);
+  }
+
+  function rewriteImageUrls(html, baseUrl){
+    html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*)(["'])(.*?)\2/gi, (match, prefix, quote, src) => {
+      if(/^data:/i.test(src)) return match;
+      try{
+        const abs = new URL(src, baseUrl).href;
+        const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
+        return prefix + quote + proxied + quote;
+      }catch(e){
+        return match;
+      }
+    });
+    html = html.replace(/url\((['"]?)(.*?)\1\)/gi, (match, quote, src) => {
+      if(/^data:/i.test(src)) return match;
+      try{
+        const abs = new URL(src, baseUrl).href;
+        const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
+        return 'url(' + quote + proxied + quote + ')';
+      }catch(e){
+        return match;
+      }
+    });
+    return html;
   }
 
   function injectFormHandler(html, baseUrl){
