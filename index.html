@@ -263,9 +263,15 @@
     return injectFormHandler(html, baseUrl);
   }
 
+  function fetchWithTimeout(url, options, timeoutMs){
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, {...options, signal: controller.signal}).finally(() => clearTimeout(timer));
+  }
+
   async function imageToDataUri(absUrl){
     try{
-      const res = await fetch(absUrl, {cache:'force-cache'});
+      const res = await fetchWithTimeout(absUrl, {cache:'force-cache'}, 5000);
       if(!res.ok) throw new Error('HTTP ' + res.status);
       const blob = await res.blob();
       return await new Promise((resolve, reject)=>{
@@ -277,7 +283,7 @@
     }catch(e){
       try{
         const proxyUrl = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(absUrl);
-        const res = await fetch(proxyUrl, {cache:'force-cache'});
+        const res = await fetchWithTimeout(proxyUrl, {cache:'force-cache'}, 5000);
         if(!res.ok) throw new Error('HTTP ' + res.status);
         const blob = await res.blob();
         return await new Promise((resolve, reject)=>{
@@ -296,15 +302,22 @@
     const srcs = new Set();
     html.replace(/<img\b[^>]*\bsrc\s*=\s*["'](.*?)["']/gi, (m, src) => { srcs.add(src); return m; });
 
+    if(srcs.size === 0) return html;
+
     const urlMap = new Map();
-    await Promise.all([...srcs].map(async (src) => {
+    const imagePromises = [...srcs].map(async (src) => {
       if(/^data:/i.test(src)) return;
       try{
         const abs = new URL(src, baseUrl).href;
         const dataUri = await imageToDataUri(abs);
         if(dataUri) urlMap.set(src, dataUri);
       }catch(e){}
-    }));
+    });
+
+    await Promise.race([
+      Promise.all(imagePromises),
+      new Promise(resolve => setTimeout(resolve, 8000))
+    ]);
 
     html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*)(["'])(.*?)\2/gi, (match, prefix, quote, src) => {
       if(urlMap.has(src)){
@@ -377,6 +390,17 @@
     return html + script;
   }
 
+  let currentBlobUrl = null;
+  function setFrameContent(html){
+    if(currentBlobUrl){
+      URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = null;
+    }
+    const blob = new Blob([html], {type: 'text/html'});
+    currentBlobUrl = URL.createObjectURL(blob);
+    frame.src = currentBlobUrl;
+  }
+
   async function go(){
     const rawUrl = urlInput.value.trim();
     if(!rawUrl){
@@ -414,7 +438,7 @@
       status.textContent = '画像を読み込み中…';
       html = await rewriteRelativeUrls(html, url.href);
 
-      frame.srcdoc = html;
+      setFrameContent(html);
       frame.style.display = 'block';
       emptyState.style.display = 'none';
       status.textContent = '表示したよ（' + usedEnc + ' で解読）';
@@ -566,10 +590,10 @@
 
       const imgSrcsRaw = [...( decodeBytes(bytes, (currentEnc==='auto'?usedEnc:currentEnc)) ).matchAll(/<img\b[^>]*\bsrc\s*=\s*["'](.*?)["']/gi)].map(m=>m[1]);
 
-      frame.srcdoc = html;
+      const imgInfo = imgSrcsRaw.length > 0 ? (' / 画像:' + imgSrcsRaw.slice(0,2).join(', ')) : ' / 画像タグなし';
+      setFrameContent(html);
       frame.style.display = 'block';
       emptyState.style.display = 'none';
-      const imgInfo = imgSrcsRaw.length > 0 ? (' / 画像:' + imgSrcsRaw.slice(0,2).join(', ')) : ' / 画像タグなし';
       status.textContent = '結果を表示したよ（' + usedEnc + ' で解読）' + imgInfo;
     }catch(err){
       status.textContent = 'フォーム送信できなかった: ' + err.message;
