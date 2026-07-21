@@ -267,8 +267,7 @@
       if(/^data:/i.test(src)) return match;
       try{
         const abs = new URL(src, baseUrl).href;
-        const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
-        return prefix + quote + proxied + quote;
+        return prefix + quote + abs + quote;
       }catch(e){
         return match;
       }
@@ -278,8 +277,7 @@
         if(/^data:/i.test(src)) return m;
         try{
           const abs = new URL(src, baseUrl).href;
-          const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
-          return 'url(' + quote + proxied + quote + ')';
+          return 'url(' + quote + abs + quote + ')';
         }catch(e){
           return m;
         }
