@@ -158,7 +158,7 @@
   <div class="eyebrow">Mojibake Page Viewer</div>
   <h1>文字化けページビューア</h1>
   <div class="urlrow">
-    <input type="url" id="urlInput" value="http://tomeci.s27.xrea.com/pwchk46/pwchk.php" placeholder="https://example.com/page.php" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <input type="url" id="urlInput" placeholder="https://example.com/page.php" autocapitalize="off" autocorrect="off" spellcheck="false">
     <button id="goBtn">表示</button>
   </div>
   <div class="controls">
@@ -273,18 +273,15 @@
         return match;
       }
     });
-    html = html.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (styleMatch, cssBody) => {
-      const rewritten = cssBody.replace(/url\((['"]?)(.*?)\1\)/gi, (m, quote, src) => {
-        if(/^data:/i.test(src)) return m;
-        try{
-          const abs = new URL(src, baseUrl).href;
-          const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
-          return 'url(' + quote + proxied + quote + ')';
-        }catch(e){
-          return m;
-        }
-      });
-      return styleMatch.replace(cssBody, rewritten);
+    html = html.replace(/url\((['"]?)(.*?)\1\)/gi, (match, quote, src) => {
+      if(/^data:/i.test(src)) return match;
+      try{
+        const abs = new URL(src, baseUrl).href;
+        const proxied = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(abs);
+        return 'url(' + quote + proxied + quote + ')';
+      }catch(e){
+        return match;
+      }
     });
     return html;
   }
