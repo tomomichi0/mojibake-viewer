@@ -510,10 +510,14 @@
       }
 
       html = rewriteRelativeUrls(html, targetUrl);
+
+      const imgSrcsRaw = [...( decodeBytes(bytes, (currentEnc==='auto'?usedEnc:currentEnc)) ).matchAll(/<img\b[^>]*\bsrc\s*=\s*["'](.*?)["']/gi)].map(m=>m[1]);
+
       frame.srcdoc = html;
       frame.style.display = 'block';
       emptyState.style.display = 'none';
-      status.textContent = '結果を表示したよ（' + usedEnc + ' で解読）';
+      const imgInfo = imgSrcsRaw.length > 0 ? (' / 画像:' + imgSrcsRaw.slice(0,2).join(', ')) : ' / 画像タグなし';
+      status.textContent = '結果を表示したよ（' + usedEnc + ' で解読）' + imgInfo;
     }catch(err){
       status.textContent = 'フォーム送信できなかった: ' + err.message;
       status.classList.add('error');
